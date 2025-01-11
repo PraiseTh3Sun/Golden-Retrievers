@@ -1,6 +1,8 @@
 import ollama
 import xml.etree.ElementTree as ET
-import csv
+import os
+import requests
+
 
 # Load and parse the XML file
 tree = ET.parse('topics-rnd5.xml')
@@ -9,16 +11,22 @@ root = tree.getroot()
 # Extract queries
 queries = [topic.find('query').text for topic in root.findall('topic')]
 
+SOLR_DIR = "C:\\Users\\Patri\\Documents\\solr-8.11.4" 
+SOLR_PORT = 8983
+CORE_NAME = "testcore" 
+METADATA_FILE = "C:\\Users\\Patri\\Downloads\\metadata.csv"
+RUN_FILE = r'C:\Users\Patri\Downloads\dis17-2024-main\dis17-2024-main\baseline-title-abstract-query.run'
+OUTPUT_FILE = "unique_document_ids_cleaned.txt"
+BASE_URL = f"http://localhost:{SOLR_PORT}/solr/{CORE_NAME}/select?q="
+TAG = 'solr-bm25'
+TOPICFILE = os.path.join("path", "to", "topics-rnd5.xml")
+FIELDS = "&fl=id,score"
+ROWS = "&rows=1000"
+
 def read_tags_from_file(tags_file):
     """Reads tags and document IDs from the output file."""
-    tags_by_doc_id = {}
     with open(tags_file, 'r') as file:
-        for line in file:
-            # Split by tab to extract document ID and tags
-            parts = line.strip().split('\t')
-            if len(parts) == 2:
-                doc_id, tags = parts
-                tags_by_doc_id[doc_id] = tags.split(',')  # Convert tags to a list
+        tags_by_doc_id = [line.strip() for line in file]
     return tags_by_doc_id
 
 def expand_query(query, output_file):
@@ -38,68 +46,32 @@ def llm(prompt):
     print(response['message']['content'])
     return response['message']['content']
 
-def tag_documents_with_llm(documents):
-    updated_docs = []
-    
-    for doc in documents:
-        doc_id = doc.get("id")  # Ensure doc is a dictionary
-        abstract = doc.get("abstract", "")  
-        
-        if not abstract:
-            print(f"Document {doc_id} has no 'abstract' field, skipping.")
-            continue
-        
-        prompt = f"Create a one-word tag for this abstract. Don't respond with anything more than the tags. Create three of them: {abstract}"
-        tags = llm(prompt)
-        
-        # Create updated document with tags
-        updated_doc = {
-            "id": doc_id,
-            "expanded_text": tags
-        }
-        updated_docs.append(updated_doc)
-    
-    return updated_docs
+def generate_run_file(new_query):
+    print("Erstelle Run-File für TREC Eval")
+    if not os.path.isfile(TOPICFILE):
+        topicsfile = requests.get('https://ir.nist.gov/covidSubmit/data/topics-rnd5.xml', allow_redirects=True)
+        open(TOPICFILE, 'wb').write(topicsfile.content)
 
-def read_metadata(file_path):
-    documents = []
-    with open(file_path, mode='r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            documents.append({
-                "id": row.get("id"),
-                "abstract": row.get("abstract", "")
-            })
-    return documents
+    with open(RUN_FILE, 'w') as f_out:
+        root = ET.parse(TOPICFILE).getroot()
+        for topic in root.findall('topic'):
+            for line in new_query:
+                query = line 
+                topic_id = topic.attrib['number']
 
-def write_tags_to_output(output_file, unique_document_ids, tagged_documents):
-    with open(output_file, 'w') as file:
-        for doc_id in unique_document_ids:
-            # Find matching document tags
-            tags = next((doc['expanded_text'] for doc in tagged_documents if doc['id'] == doc_id), "No tags found")
-            file.write(f"{doc_id}\t{tags}\n")
+                q = f"title_txt:({query}) abstract_txt:({query})"
+                url = f"{BASE_URL}{q}{FIELDS}{ROWS}"
+                response = requests.get(url).json()
 
-# Define file paths
-METADATA_FILE = "C:\\Users\\Patri\\Downloads\\metadata.csv"
-RUN_FILE = r'C:\Users\Patri\Downloads\dis17-2024-main\dis17-2024-main\baseline-title-abstract-query.run'
-OUTPUT_FILE = r'C:\Users\Patri\Downloads\unique_document_ids_cleaned.txt'
+                rank = 1
+                for doc in response.get('response', {}).get('docs', []):
+                    docid = doc.get("id")
+                    score = doc.get("score")
+                    out_str = f"{topic_id}\tQ0\t{docid}\t{rank}\t{score}\t{TAG}"
+                    f_out.write(out_str + '\n')
+                    rank += 1
 
-# Load metadata and generate tags
-documents = read_metadata(METADATA_FILE)  # Parse the metadata file
-tagged_documents = tag_documents_with_llm(documents)  # Generate tags
-
-# Process unique document IDs
-with open(RUN_FILE, 'r') as file:
-    document_ids = [line[5:13] for line in file]
-    seen = set()
-    unique_document_ids = []
-    for doc_id in document_ids:
-        if doc_id not in seen:
-            unique_document_ids.append(doc_id)
-            seen.add(doc_id)
-    unique_document_ids = [doc_id.replace('\t', '') for doc_id in unique_document_ids]
-
-# Write tags to output file
-write_tags_to_output(OUTPUT_FILE, unique_document_ids, tagged_documents)
 tags_by_doc_id = read_tags_from_file(OUTPUT_FILE) 
-expand_query(queries, tags_by_doc_id)
+expanded = expand_query(queries, tags_by_doc_id)
+generate_run_file(expanded)
+
