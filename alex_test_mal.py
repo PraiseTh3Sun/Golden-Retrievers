@@ -1,4 +1,4 @@
-import ollama 
+import ollama
 import xml.etree.ElementTree as ET
 import csv
 
@@ -13,13 +13,12 @@ def expand_query(query):
     prompt = f"""
     Update these Queries: {query} and write them like this: #yourtext#. Use semantically similar or contextually relevant text to the original query. You are not allowed to write more than the query itself.
     """
-    response = ollama.chat(model = "llama3.2", messages=[{"role": "user", "content": prompt}])
+    response = ollama.chat(model="llama3.2", messages=[{"role": "user", "content": prompt}])
     return response['message']["content"]
-# Expand the first query
 
 def llm(prompt):
     response = ollama.chat(
-        model='llama3.2', 
+        model='llama3.2',
         messages=[
             {'role': 'user', 'content': prompt}
         ]
@@ -27,34 +26,28 @@ def llm(prompt):
     print(response['message']['content'])
     return response['message']['content']
 
-def tag_documents_with_llm():
-    documents = "C:\\Users\\Patri\\Downloads\\metadata.csv"
+def tag_documents_with_llm(documents):
     updated_docs = []
     
     for doc in documents:
-        doc_id = doc.get("id")
+        doc_id = doc.get("id")  # Ensure doc is a dictionary
         abstract = doc.get("abstract", "")  
         
         if not abstract:
-            print(f"Dokument {doc_id} hat kein 'extract'-Feld, wird übersprungen.")
+            print(f"Document {doc_id} has no 'abstract' field, skipping.")
             continue
         
-        prompt = f"Create a one Word Tag for that abstract. Dont respond anything more then the tags. Create three of them: {abstract}"
+        prompt = f"Create a one-word tag for this abstract. Don't respond with anything more than the tags. Create three of them: {abstract}"
         tags = llm(prompt)
         
-        # Aktualisiertes Dokument erstellen
+        # Create updated document with tags
         updated_doc = {
             "id": doc_id,
-            "expanded_text": tags 
+            "expanded_text": tags
         }
         updated_docs.append(updated_doc)
-        
-tag_documents_with_llm()    
-    # Aktualisierung in Solr
-
-METADATA_FILE = "C:\\Users\\Patri\\Downloads\\metadata.csv"
-RUN_FILE = r'C:\Users\Patri\Downloads\dis17-2024-main\dis17-2024-main\baseline-title-abstract-query.run'
-OUTPUT_FILE = r'C:\Users\Patri\Downloads\unique_document_ids_cleaned.txt'
+    
+    return updated_docs
 
 def read_metadata(file_path):
     documents = []
@@ -74,9 +67,14 @@ def write_tags_to_output(output_file, unique_document_ids, tagged_documents):
             tags = next((doc['expanded_text'] for doc in tagged_documents if doc['id'] == doc_id), "No tags found")
             file.write(f"{doc_id}\t{tags}\n")
 
+# Define file paths
+METADATA_FILE = "C:\\Users\\Patri\\Downloads\\metadata.csv"
+RUN_FILE = r'C:\Users\Patri\Downloads\dis17-2024-main\dis17-2024-main\baseline-title-abstract-query.run'
+OUTPUT_FILE = r'C:\Users\Patri\Downloads\unique_document_ids_cleaned.txt'
+
 # Load metadata and generate tags
-documents = read_metadata(METADATA_FILE)
-tagged_documents = tag_documents_with_llm(documents)
+documents = read_metadata(METADATA_FILE)  # Parse the metadata file
+tagged_documents = tag_documents_with_llm(documents)  # Generate tags
 
 # Process unique document IDs
 with open(RUN_FILE, 'r') as file:
