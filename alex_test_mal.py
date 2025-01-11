@@ -9,9 +9,9 @@ root = tree.getroot()
 # Extract queries
 queries = [topic.find('query').text for topic in root.findall('topic')]
 
-def expand_query(query):
+def expand_query(query, output_file):
     prompt = f"""
-    Update these Queries: {query} and write them like this: #yourtext#. Use semantically similar or contextually relevant text to the original query. You are not allowed to write more than the query itself.
+    Update these Queries: {query} and use the Outputfile {output_file} to expand the original Query. Use semantically similar or contextually relevant text to the original query. You are not allowed to write more than the query itself.
     """
     response = ollama.chat(model="llama3.2", messages=[{"role": "user", "content": prompt}])
     return response['message']["content"]
@@ -89,3 +89,4 @@ with open(RUN_FILE, 'r') as file:
 
 # Write tags to output file
 write_tags_to_output(OUTPUT_FILE, unique_document_ids, tagged_documents)
+expand_query(queries, OUTPUT_FILE)
