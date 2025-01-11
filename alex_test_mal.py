@@ -9,14 +9,40 @@ root = tree.getroot()
 # Extract queries
 queries = [topic.find('query').text for topic in root.findall('topic')]
 
-def expand_query(query, output_file):
+def read_tags_from_file(tags_file):
+    """Reads tags and document IDs from the output file."""
+    tags_by_doc_id = {}
+    with open(tags_file, 'r') as file:
+        for line in file:
+            # Split by tab to extract document ID and tags
+            parts = line.strip().split('\t')
+            if len(parts) == 2:
+                doc_id, tags = parts
+                tags_by_doc_id[doc_id] = tags.split(',')  # Convert tags to a list
+    return tags_by_doc_id
+
+def expand_query(query, tags_by_doc_id):
+    """Expands queries using tags."""
+    # Find relevant tags for the query
+    related_tags = []
+    for tags in tags_by_doc_id.values():
+        for tag in tags:
+            if query.lower() in tag.lower():  # Simple substring matching
+                related_tags.append(tag)
+
+    related_tags = list(set(related_tags))  # Remove duplicates
+    tag_text = ', '.join(related_tags) if related_tags else "No related tags found"
+    
     prompt = f"""
-    Update these Queries: {query} and use the Outputfile {output_file} to expand the original Query. Use semantically similar or contextually relevant text to the original query. You are not allowed to write more than the query itself.
+    Update this Query: {query} using the following contextually relevant tags: {tag_text}. 
+    Write the expanded query like this: #yourtext#. Use semantically similar or contextually relevant text to the original query and tags. 
+    You are not allowed to write more than the query itself.
     """
     response = ollama.chat(model="llama3.2", messages=[{"role": "user", "content": prompt}])
     return response['message']["content"]
 
 def llm(prompt):
+    """Handles interaction with the LLM."""
     response = ollama.chat(
         model='llama3.2',
         messages=[
@@ -27,6 +53,7 @@ def llm(prompt):
     return response['message']['content']
 
 def tag_documents_with_llm(documents):
+    """Generates tags for each document using the LLM."""
     updated_docs = []
     
     for doc in documents:
@@ -50,6 +77,7 @@ def tag_documents_with_llm(documents):
     return updated_docs
 
 def read_metadata(file_path):
+    """Reads metadata from a CSV file."""
     documents = []
     with open(file_path, mode='r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
@@ -61,6 +89,7 @@ def read_metadata(file_path):
     return documents
 
 def write_tags_to_output(output_file, unique_document_ids, tagged_documents):
+    """Writes tags and document IDs to an output file."""
     with open(output_file, 'w') as file:
         for doc_id in unique_document_ids:
             # Find matching document tags
@@ -89,4 +118,16 @@ with open(RUN_FILE, 'r') as file:
 
 # Write tags to output file
 write_tags_to_output(OUTPUT_FILE, unique_document_ids, tagged_documents)
-expand_query(queries, OUTPUT_FILE)
+
+# Step 1: Load tags from the output file
+tags_by_doc_id = read_tags_from_file(OUTPUT_FILE)  # Load tags from file
+
+# Step 2: Expand queries using the tags
+expanded_queries = []
+for query in queries:
+    expanded_query = expand_query(query, tags_by_doc_id)  # Pass tags loaded from file
+    expanded_queries.append(expanded_query)
+
+# Step 3: Print expanded queries
+for original, expanded in zip(queries, expanded_queries):
+    print(f"Original: {original} -> Expanded: {expanded}")
